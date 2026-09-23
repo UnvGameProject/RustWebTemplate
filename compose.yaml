@@ -4,10 +4,12 @@ services:
     init: true
     environment:
       POSTGRES_DB: topcoat_poc
-      POSTGRES_USER: topcoat_poc
-      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_bootstrap_password
     secrets:
-      - postgres_password
+      - postgres_bootstrap_password
+      - postgres_migrator_password
+      - postgres_app_password
     healthcheck:
       test:
         [
@@ -19,7 +21,7 @@ services:
       retries: 30
     volumes:
       - postgres-data:/var/lib/postgresql
-
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
   assets:
     image: node:24.21.0-bookworm-slim
     init: true
@@ -57,10 +59,10 @@ services:
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_NAME: topcoat_poc
-      DB_USER: topcoat_poc
-      DB_PASSWORD_FILE: /run/secrets/postgres_password
+      DB_USER: topcoat_app
+      DB_PASSWORD_FILE: /run/secrets/postgres_app_password
     secrets:
-      - postgres_password
+      - postgres_app_password
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
@@ -70,8 +72,14 @@ services:
       - cargo-target:/cargo-target
 
 secrets:
-  postgres_password:
-    file: ./.secrets/postgres_password
+  postgres_bootstrap_password:
+    file: ./.secrets/postgres_bootstrap_password
+
+  postgres_migrator_password:
+    file: ./.secrets/postgres_migrator_password
+
+  postgres_app_password:
+    file: ./.secrets/postgres_app_password
 
 volumes:
   postgres-data:

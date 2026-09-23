@@ -45,21 +45,34 @@ cd topcoat_poc
 
 If this repository is being used as a GitHub template, create a new repository from the template first, then clone the new repository.
 
-### Create the local development secret
+### Create the local development secrets
 
 The preferred development configuration uses Docker Compose secrets rather than a `.env` file.
 
-Create the local secrets directory and PostgreSQL password:
+The PostgreSQL setup separates bootstrap, migration, and runtime application privileges. Create three local passwords:
 
 ```bash
 mkdir -p .secrets
 chmod 700 .secrets
 
-openssl rand -hex 24 > .secrets/postgres_password
-chmod 600 .secrets/postgres_password
+openssl rand -hex 24 > .secrets/postgres_bootstrap_password
+openssl rand -hex 24 > .secrets/postgres_migrator_password
+openssl rand -hex 24 > .secrets/postgres_app_password
+
+chmod 644 .secrets/postgres_*_password
 ```
 
+The `.secrets/` directory itself remains `0700`, preventing other host users from traversing it. The individual secret files use `0644` because Docker Compose file-backed secrets are mounted into containers with host-file permissions; PostgreSQL initialization runs as the container's `postgres` OS user and must be able to read the migrator and application password files.
+
 The `.secrets/` directory is ignored by Git and must never be committed.
+
+The roles are intentionally separated:
+
+- `postgres` — bootstrap superuser used only by the PostgreSQL container during initialization and administration.
+- `topcoat_migrator` — non-superuser schema owner used for migrations.
+- `topcoat_app` — least-privilege runtime user used by the Topcoat application.
+
+The application container receives only the runtime application's password secret.
 
 ### Build and start the application
 
@@ -121,12 +134,14 @@ docker compose exec postgres sh -c \
   'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT current_database(), current_user, version();"'
 ```
 
-Verify that the application container can read its Docker secret without printing the password:
+Verify that the application container can read its runtime Docker secret without printing the password:
 
 ```bash
 docker compose exec app sh -c \
-  'test -r /run/secrets/postgres_password && echo "postgres_password secret: readable"'
+  'test -r /run/secrets/postgres_app_password && echo "postgres_app_password secret: readable"'
 ```
+
+The runtime application should not receive the bootstrap or migrator password files.
 
 ### Development logs
 
@@ -244,6 +259,7 @@ The frontend architecture must remain compatible with standards-based CSS and mu
 - Dedicated frontend asset-builder container
 - PostgreSQL 18.6
 - Docker Compose secrets
+- Separate PostgreSQL bootstrap, migration, and runtime roles
 
 ## Rust toolchain
 
@@ -319,25 +335,45 @@ Local development secrets live under:
 
 This directory is ignored by Git.
 
-The PostgreSQL development password is created with:
-
-```bash
-mkdir -p .secrets
-chmod 700 .secrets
-
-openssl rand -hex 24 > .secrets/postgres_password
-chmod 600 .secrets/postgres_password
-```
-
-The secret is exposed only to containers that explicitly receive it and is mounted inside those containers under:
+The PostgreSQL development setup uses three independently generated password files:
 
 ```text
-/run/secrets/postgres_password
+.secrets/postgres_bootstrap_password
+.secrets/postgres_migrator_password
+.secrets/postgres_app_password
 ```
+
+Docker Compose grants each secret only to the service that requires it.
+
+For local file-backed Compose secrets, keep `.secrets/` at `0700` and the contained password files at `0644`. The directory permission protects the host-side files, while the file permissions allow non-root service users such as PostgreSQL's `postgres` user to read secrets mounted into their containers.
+
+The intended privilege model is:
+
+```text
+postgres
+    bootstrap superuser
+    PostgreSQL initialization / administration only
+
+topcoat_migrator
+    non-superuser schema owner
+    migrations and schema evolution only
+
+topcoat_app
+    non-superuser runtime role
+    SELECT / INSERT / UPDATE / DELETE only
+```
+
+The Topcoat application receives only:
+
+```text
+/run/secrets/postgres_app_password
+```
+
+It does not receive the bootstrap or migration credentials.
 
 Non-secret database configuration such as the host, port, database name, and username may use ordinary container environment variables.
 
-The Rust application will read the database password directly from the mounted secret file instead of converting it into a password-bearing environment variable.
+The Rust application reads its database password directly from the mounted secret file instead of converting it into a password-bearing `DATABASE_URL` environment variable.
 
 `.env` may be supported later as an optional convenience fallback for users of the template, but it is not the preferred configuration mechanism.
 
@@ -365,6 +401,7 @@ Security controls are evaluated independently, including:
 - CSP
 - file-upload handling
 - secret management
+- least-privilege database roles
 - audit logging
 - dependency auditing
 
@@ -415,6 +452,7 @@ The design favors:
 - embedded/versioned migrations
 - compile-time model/query contracts
 - restricted locations for raw SQL
+- separation of migration authority from runtime DML authority
 
 Normal model-specific SQL will live with that model's persistence implementation.
 
@@ -591,6 +629,7 @@ In progress:
 - connection pool
 - typed configuration
 - Docker secrets
+- least-privilege PostgreSQL roles
 - migrations
 - model/schema contracts
 - first CRUD workflow
