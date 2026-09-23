@@ -1,7 +1,14 @@
 FROM rust:1.98.1-bookworm
 
 RUN rustup component add rustfmt clippy \
-    && cargo install topcoat-cli --version 0.8.1 --locked
+    && cargo install topcoat-cli \
+        --version 0.8.1 \
+        --locked \
+    && cargo install sqlx-cli \
+        --version 0.9.0 \
+        --locked \
+        --no-default-features \
+        --features rustls,postgres
 
 WORKDIR /app
 
