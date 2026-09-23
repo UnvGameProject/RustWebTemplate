@@ -48,6 +48,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       assets:
         condition: service_healthy
     environment:
@@ -70,6 +72,60 @@ services:
       - cargo-registry:/usr/local/cargo/registry
       - cargo-git:/usr/local/cargo/git
       - cargo-target:/cargo-target
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    init: true
+    command: [ "cargo", "run", "--locked", "--bin", "migrate" ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      RUST_BACKTRACE: 1
+      CARGO_TARGET_DIR: /cargo-target
+
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: topcoat_poc
+      DB_USER: topcoat_migrator
+      DB_PASSWORD_FILE: /run/secrets/postgres_migrator_password
+    secrets:
+      - postgres_migrator_password
+    volumes:
+      - .:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/cargo-target
+
+  rusty:
+    build:
+      context: .
+      dockerfile: tools/rusty-cli/Dockerfile
+    init: true
+    working_dir: /workspace
+    command: [ "sleep", "infinity" ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      RUSTY_PROJECT_ROOT: /workspace
+
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: topcoat_poc
+      DB_USER: topcoat_migrator
+      DB_PASSWORD_FILE: /run/secrets/postgres_migrator_password
+    secrets:
+      - postgres_migrator_password
+    volumes:
+      - .:/workspace
+    healthcheck:
+      test: [ "CMD", "rusty", "--version" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 secrets:
   postgres_bootstrap_password:

@@ -1,11 +1,6 @@
-mod app;
-mod config;
-mod db;
-mod web;
-
 #[tokio::main]
 async fn main() {
-    if let Err(error) = app::run().await {
+    if let Err(error) = topcoat_poc::run().await {
         eprintln!("application startup failed: {error}");
         std::process::exit(1);
     }

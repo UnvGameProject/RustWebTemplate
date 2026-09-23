@@ -76,6 +76,8 @@ The application container receives only the runtime application's password secre
 
 ### Build and start the application
 
+Build and start the full development stack:
+
 ```bash
 docker compose up --build
 ```
@@ -85,6 +87,8 @@ Or, after the images have already been built:
 ```bash
 docker compose up -d
 ```
+
+The development stack includes PostgreSQL, the frontend asset builder, the Topcoat application, the migration runner, and the Rusty CLI development-tool container.
 
 Check service status:
 
@@ -142,6 +146,51 @@ docker compose exec app sh -c \
 ```
 
 The runtime application should not receive the bootstrap or migrator password files.
+
+### Verify Rusty CLI
+
+Rusty CLI is the project-local Rust developer tool used for scaffolding and project maintenance.
+
+Build and start it:
+
+```bash
+docker compose build rusty
+docker compose up -d rusty
+```
+
+Verify it:
+
+```bash
+./rusty --version
+./rusty doctor
+```
+
+The repository-root `./rusty` wrapper starts the Rusty service when needed and executes the tool with the host UID/GID so generated project files are not created as `root`.
+
+Create a reversible SQLx migration:
+
+```bash
+./rusty migration CreateContacts
+```
+
+This creates a pair such as:
+
+```text
+migrations/20260923194201_create_contacts.up.sql
+migrations/20260923194201_create_contacts.down.sql
+```
+
+For an intentionally irreversible migration:
+
+```bash
+./rusty migration SomeOneWayChange --simple
+```
+
+The compatibility alias is also available:
+
+```bash
+./rusty make:migration CreateContacts
+```
 
 ### Development logs
 
@@ -231,6 +280,21 @@ http://localhost:3000
 
 The host mapping intentionally binds to `127.0.0.1` so the development application is not exposed to the LAN by default.
 
+### POC 1 — In progress
+
+Currently verified:
+
+- PostgreSQL 18.6 container
+- Docker Compose file-backed secrets
+- separate bootstrap, migration, and runtime PostgreSQL roles
+- runtime SQLx pool connected as `topcoat_app`
+- dedicated `topcoat_migrator` role
+- Rusty CLI standalone crate
+- Rusty Docker service
+- project-local `./rusty` wrapper
+- reversible migration scaffolding
+- generated migrations owned by the host developer rather than root
+
 ## Current stack
 
 ### Application
@@ -258,6 +322,8 @@ The frontend architecture must remain compatible with standards-based CSS and mu
 - Rust application container
 - Dedicated frontend asset-builder container
 - PostgreSQL 18.6
+- Dedicated one-shot migration runner
+- Dockerized Rusty CLI development-tool service
 - Docker Compose secrets
 - Separate PostgreSQL bootstrap, migration, and runtime roles
 
@@ -322,6 +388,55 @@ Current behavior:
 - Generated frontend output is not committed.
 
 Topcoat and the application architecture must not become dependent on Tailwind.
+
+## Rusty CLI developer tooling
+
+Rusty CLI is a separate Rust crate under:
+
+```text
+tools/rusty-cli/
+```
+
+It has its own `Cargo.toml` and `Cargo.lock`, keeping developer-tool dependencies out of the production web application's dependency graph.
+
+Current commands:
+
+```text
+./rusty doctor
+./rusty migration <Name>
+./rusty make:migration <Name>
+```
+
+Current responsibilities include project-root discovery, environment diagnostics, SQLx-compatible migration generation, safe refusal to overwrite existing migrations, snake_case normalization, reversible migration pairs by default, and host UID/GID-safe file generation.
+
+The default reversible migration convention is:
+
+```text
+<version>_<description>.up.sql
+<version>_<description>.down.sql
+```
+
+### Planned Rusty commands
+
+Future commands should follow the project's module organization rather than creating flat catch-all directories. Planned work includes PostgreSQL-backed model generation/synchronization and module-aware unit/feature test scaffolding.
+
+For example, tests for:
+
+```text
+src/db/models/contact/
+```
+
+should be generated under:
+
+```text
+src/db/models/contact/tests/
+├── mod.rs
+└── <test_name>.rs
+```
+
+unless the test is truly integration-level.
+
+The legacy PHP Rusty CLI is not part of this template.
 
 ## Secrets and configuration
 
@@ -486,6 +601,39 @@ migrations/
 
 because migration SQL defines the database schema itself.
 
+Reversible migrations use SQLx's native paired naming convention:
+
+```text
+<version>_<description>.up.sql
+<version>_<description>.down.sql
+```
+
+Generate them through Rusty CLI instead of creating files manually:
+
+```bash
+./rusty migration CreateContacts
+```
+
+The Compose migration service runs under `topcoat_migrator` and completes before the runtime application starts. The `topcoat_app` runtime role does not receive schema-owner authority.
+
+## Migration build tracking
+
+The repository-root `build.rs` exists specifically for SQLx embedded migration tracking:
+
+```rust
+fn main() {
+    println!("cargo:rerun-if-changed=migrations");
+}
+```
+
+The repository-root `.gitattributes` pins SQL migration files to LF line endings:
+
+```gitattributes
+*.sql text eol=lf
+```
+
+This keeps SQLx migration hashes stable across development platforms.
+
 ## Model/schema contracts
 
 A primary design requirement is that Rust database structs remain synchronized with the actual PostgreSQL schema.
@@ -571,6 +719,21 @@ Linting:
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
+Rusty CLI checks:
+
+```bash
+cargo fmt --manifest-path tools/rusty-cli/Cargo.toml --check
+cargo check --manifest-path tools/rusty-cli/Cargo.toml --locked
+```
+
+Rusty CLI usage:
+
+```bash
+./rusty --help
+./rusty doctor
+./rusty migration CreateContacts
+```
+
 ## Topcoat development reload
 
 `topcoat::dev::script()` is currently retained because it provides Topcoat's browser-side automatic development reload/status behavior.
@@ -592,6 +755,11 @@ Commit:
 - `package-lock.json`
 - `rust-toolchain.toml`
 - Docker configuration
+- `build.rs`
+- `.gitattributes`
+- `tools/rusty-cli/`
+- Rusty CLI's `Cargo.lock`
+- root `rusty` wrapper
 - SQLx offline metadata when introduced
 
 Do not commit:
@@ -630,9 +798,32 @@ In progress:
 - typed configuration
 - Docker secrets
 - least-privilege PostgreSQL roles
-- migrations
+- dedicated migration runner
+- Rusty CLI migration scaffolding
+- embedded/versioned migrations
 - model/schema contracts
 - first CRUD workflow
+
+### Developer tooling — Rusty CLI
+
+**Status: Initial baseline green**
+
+Implemented:
+
+- standalone Rust crate
+- independent Cargo dependency graph
+- Dockerized developer-tool service
+- host UID/GID-safe root wrapper
+- `doctor`
+- reversible SQLx migration generator
+- simple/irreversible migration option
+- migration command compatibility alias
+
+Planned:
+
+- PostgreSQL-backed model generation and synchronization
+- module-aware unit/feature test scaffolding
+- additional consistency/diagnostic commands where they provide clear value
 
 ### POC 2 — Validation and forms
 

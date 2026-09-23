@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+set -eu
+
+docker compose up -d rusty >/dev/null
+
+UID_VALUE="$(id -u)"
+GID_VALUE="$(id -g)"
+
+if [ -t 0 ] && [ -t 1 ]; then
+    exec docker compose exec \
+        --user "${UID_VALUE}:${GID_VALUE}" \
+        rusty \
+        rusty "$@"
+else
+    exec docker compose exec \
+        -T \
+        --user "${UID_VALUE}:${GID_VALUE}" \
+        rusty \
+        rusty "$@"
+fi

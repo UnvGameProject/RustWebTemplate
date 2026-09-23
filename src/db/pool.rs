@@ -7,14 +7,17 @@ use sqlx::{
 
 use crate::config::DatabaseConfig;
 
-pub(crate) async fn connect(config: &DatabaseConfig) -> Result<PgPool, sqlx::Error> {
+pub(crate) async fn connect(
+    config: &DatabaseConfig,
+    application_name: &str,
+) -> Result<PgPool, sqlx::Error> {
     let options = PgConnectOptions::new()
         .host(config.host())
         .port(config.port())
         .username(config.user())
         .password(config.password())
         .database(config.name())
-        .application_name("topcoat-poc");
+        .application_name(application_name);
 
     PgPoolOptions::new()
         .max_connections(10)

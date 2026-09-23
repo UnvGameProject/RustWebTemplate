@@ -6,15 +6,12 @@ use topcoat::{
     runtime::RouterBuilderRuntimeExt,
 };
 
-use crate::{
-    config::DatabaseConfig,
-    db,
-};
+use crate::{config::DatabaseConfig, db};
 
 pub(crate) async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
     let database_config = DatabaseConfig::load()?;
 
-    let database = db::connect(&database_config).await?;
+    let database = db::connect(&database_config, "topcoat-poc").await?;
     db::healthcheck(&database).await?;
 
     let router = Router::builder()

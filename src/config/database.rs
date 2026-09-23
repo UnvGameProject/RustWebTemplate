@@ -1,6 +1,5 @@
 use std::{
-    env,
-    fs,
+    env, fs,
     io::{Error, ErrorKind},
 };
 
@@ -27,11 +26,7 @@ impl DatabaseConfig {
 
         if password.is_empty() {
             return Err(
-                Error::new(
-                    ErrorKind::InvalidData,
-                    "database password secret is empty",
-                )
-                    .into(),
+                Error::new(ErrorKind::InvalidData, "database password secret is empty").into(),
             );
         }
 
