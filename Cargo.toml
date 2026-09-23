@@ -1,0 +1,9 @@
+[package]
+name = "topcoat-poc"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+
+[dependencies]
+topcoat = { version = "=0.8.1", features = ["tower"] }
+tokio = { version = "1.51.1", features = ["rt-multi-thread", "macros"] }

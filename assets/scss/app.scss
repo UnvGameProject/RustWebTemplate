@@ -1,0 +1,28 @@
+// POC styling foundation: Bootstrap is consumed as source SCSS so we can
+// customize it rather than treating a precompiled stylesheet as untouchable.
+
+$enable-dark-mode: true;
+$primary: #2563eb;
+$body-bg: #0b1020;
+$body-color: #e9eef8;
+$border-color: #28344a;
+$card-bg: #111827;
+$card-border-color: #28344a;
+
+@import "bootstrap/scss/bootstrap";
+
+.poc-shell {
+    min-height: 100vh;
+    background:
+        radial-gradient(circle at 20% 10%, rgba(37, 99, 235, 0.18), transparent 28rem),
+        $body-bg;
+}
+
+.poc-eyebrow {
+    letter-spacing: 0.12em;
+}
+
+.poc-panel {
+    background: rgba(17, 24, 39, 0.88);
+    backdrop-filter: blur(12px);
+}

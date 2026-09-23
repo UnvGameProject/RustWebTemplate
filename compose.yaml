@@ -1,0 +1,40 @@
+services:
+  assets:
+    image: node:24.21.0-bookworm-slim
+    init: true
+    working_dir: /workspace
+    command: ["sh", "/workspace/assets/scripts/dev-assets.sh"]
+    volumes:
+      - .:/workspace
+      - node-modules:/workspace/node_modules
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /workspace/generated/app.css && test -s /workspace/generated/bootstrap.bundle.min.js"]
+      interval: 1s
+      timeout: 2s
+      retries: 60
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    init: true
+    depends_on:
+      assets:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      RUST_BACKTRACE: 1
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - .:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/app/target
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  cargo-target:
+  node-modules:

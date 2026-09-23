@@ -1,0 +1,14 @@
+{
+  "name": "topcoat-poc-assets",
+  "private": true,
+  "scripts": {
+    "build:css": "sass --load-path=node_modules --style=expanded --source-map assets/scss/app.scss generated/app.css",
+    "build:bootstrap-js": "cp node_modules/bootstrap/dist/js/bootstrap.bundle.min.js generated/bootstrap.bundle.min.js",
+    "build:assets": "npm run build:css && npm run build:bootstrap-js",
+    "watch:css": "sass --load-path=node_modules --watch --style=expanded --source-map assets/scss/app.scss generated/app.css"
+  },
+  "devDependencies": {
+    "bootstrap": "5.3.8",
+    "sass": "1.105.0"
+  }
+}

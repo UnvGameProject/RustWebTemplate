@@ -1,0 +1,93 @@
+# -----------------------------
+# Rust / Cargo
+# -----------------------------
+/target/
+**/*.rs.bk
+
+# Keep Cargo.lock for applications/templates
+!Cargo.lock
+
+# -----------------------------
+# Node / frontend tooling
+# -----------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Keep package-lock.json for reproducible application builds
+!package-lock.json
+
+# Compiled/generated frontend assets
+/generated/
+
+# -----------------------------
+# Environment / secrets
+# -----------------------------
+.env
+.env.*
+!.env.example
+
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# -----------------------------
+# SQLx
+# -----------------------------
+# Keep offline query metadata committed once we start using cargo sqlx prepare
+!.sqlx/
+!.sqlx/**
+
+# -----------------------------
+# Local database / Docker state
+# -----------------------------
+postgres-data/
+pgdata/
+data/postgres/
+
+# Docker Compose local overrides
+docker-compose.override.yml
+compose.override.yml
+
+# -----------------------------
+# Logs / runtime artifacts
+# -----------------------------
+*.log
+logs/
+tmp/
+temp/
+.cache/
+
+# -----------------------------
+# IDE / editor
+# -----------------------------
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# Test / coverage output
+# -----------------------------
+coverage/
+lcov.info
+*.profraw
+*.profdata
+
+# -----------------------------
+# Misc local tooling
+# -----------------------------
+.direnv/
+.envrc

@@ -1,0 +1,14 @@
+FROM rust:1.98-bookworm
+
+RUN cargo install topcoat-cli --version 0.8.1 --locked
+
+WORKDIR /app
+
+ENV HOST=0.0.0.0 \
+    PORT=3000 \
+    CARGO_TERM_COLOR=always \
+    RUST_BACKTRACE=1
+
+EXPOSE 3000
+
+CMD ["topcoat", "dev"]

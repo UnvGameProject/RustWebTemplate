@@ -1,0 +1,10 @@
+/* Plain CSS is deliberately supported alongside SCSS/Bootstrap. */
+
+:focus-visible {
+    outline: 3px solid #7dd3fc;
+    outline-offset: 3px;
+}
+
+.poc-security-note {
+    border-left: 4px solid #22c55e;
+}
