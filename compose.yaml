@@ -1,4 +1,25 @@
 services:
+  postgres:
+    image: postgres:18.6-bookworm
+    init: true
+    environment:
+      POSTGRES_DB: topcoat_poc
+      POSTGRES_USER: topcoat_poc
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - postgres-data:/var/lib/postgresql
+
   assets:
     image: node:24.21.0-bookworm-slim
     init: true
@@ -8,7 +29,11 @@ services:
       - .:/workspace
       - node-modules:/workspace/node_modules
     healthcheck:
-      test: ["CMD-SHELL", "test -s /workspace/generated/app.css && test -s /workspace/generated/bootstrap.bundle.min.js"]
+      test:
+        [
+          "CMD-SHELL",
+          "test -s /workspace/generated/app.css && test -s /workspace/generated/bootstrap.bundle.min.js"
+        ]
       interval: 1s
       timeout: 2s
       retries: 60
@@ -19,21 +44,37 @@ services:
       dockerfile: Dockerfile.dev
     init: true
     depends_on:
+      postgres:
+        condition: service_healthy
       assets:
         condition: service_healthy
     environment:
       HOST: 0.0.0.0
       PORT: 3000
       RUST_BACKTRACE: 1
+      CARGO_TARGET_DIR: /cargo-target
+
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: topcoat_poc
+      DB_USER: topcoat_poc
+      DB_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
       - .:/app
       - cargo-registry:/usr/local/cargo/registry
       - cargo-git:/usr/local/cargo/git
-      - cargo-target:/app/target
+      - cargo-target:/cargo-target
+
+secrets:
+  postgres_password:
+    file: ./.secrets/postgres_password
 
 volumes:
+  postgres-data:
   cargo-registry:
   cargo-git:
   cargo-target:
