@@ -1,95 +1,18 @@
-use sqlx::PgPool;
 use topcoat::{
     Result,
-    context::{Cx, app_context},
+    context::Cx,
     router::page,
-    runtime::{Event, procedure, shard, signal},
+    runtime::{Event, signal},
     view::{View, view},
 };
 
-use crate::{
-    db::models::contact::Contact,
-    domain::contact::{ContactError, CreateContactInput},
-};
+use self::{create::create_contact, list::contact_list};
 
-fn validation_outcome(report: &garde::Report) -> &'static str {
-    let name_invalid = garde::select!(report, name).next().is_some();
-    let email_invalid = garde::select!(report, email).next().is_some();
+mod create;
+mod list;
 
-    match (name_invalid, email_invalid) {
-        (true, true) => "validation_both",
-        (true, false) => "validation_name",
-        (false, true) => "validation_email",
-        (false, false) => "validation",
-    }
-}
-
-#[procedure]
-async fn create_contact(cx: &Cx, name: String, email: String) -> Result<String> {
-    let input = CreateContactInput::from_untrusted(name, email);
-
-    let input = match input.validate() {
-        Ok(input) => input,
-        Err(report) => {
-            return Ok(validation_outcome(&report).to_owned());
-        }
-    };
-
-    let pool = app_context::<PgPool>(cx);
-
-    match Contact::create(pool, &input).await {
-        Ok(_) => Ok("created".to_owned()),
-
-        Err(ContactError::EmailAlreadyExists) => Ok("duplicate".to_owned()),
-
-        Err(error) => {
-            eprintln!("contact creation failed: {error:?}");
-            Ok("error".to_owned())
-        }
-    }
-}
-
-#[shard]
-async fn contact_list(cx: &Cx, refresh: f64) -> Result<impl View> {
-    // The refresh value itself has no business meaning.
-    // Changing it causes Topcoat to re-render this shard.
-    let _ = refresh;
-
-    let pool = app_context::<PgPool>(cx);
-    let contact_rows = Contact::find_all(pool).await?;
-
-    Ok(view! {
-        <div>
-            if contact_rows.is_empty() {
-                <div class="alert alert-secondary" role="status">
-                    "No contacts have been created yet."
-                </div>
-            } else {
-                <div class="card shadow-sm">
-                    <div class="table-responsive">
-                        <table class="table table-striped align-middle mb-0">
-                            <thead>
-                                <tr>
-                                    <th scope="col">"Name"</th>
-                                    <th scope="col">"Email"</th>
-                                </tr>
-                            </thead>
-
-                            <tbody>
-                                for contact in contact_rows {
-                                    <tr>
-                                        <td>(contact.name)</td>
-                                        <td>(contact.email)</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            }
-        </div>
-    })
-}
+#[cfg(test)]
+mod tests;
 
 #[page("/contacts")]
 async fn contacts(cx: &Cx) -> Result<impl View> {
@@ -236,6 +159,7 @@ async fn contacts(cx: &Cx) -> Result<impl View> {
                                             name.set(e.target.value);
                                         })
                                     >
+
                                     <div
                                         class="invalid-feedback d-block"
                                         :hidden=$(name_error.get() == "")
@@ -263,6 +187,7 @@ async fn contacts(cx: &Cx) -> Result<impl View> {
                                             email.set(e.target.value);
                                         })
                                     >
+
                                     <div
                                         class="invalid-feedback d-block"
                                         :hidden=$(email_error.get() == "")
@@ -293,6 +218,3 @@ async fn contacts(cx: &Cx) -> Result<impl View> {
         </main>
     })
 }
-
-#[cfg(test)]
-mod tests;
