@@ -1,1 +1,2 @@
+mod contacts;
 mod home;

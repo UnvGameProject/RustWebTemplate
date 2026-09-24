@@ -2,12 +2,8 @@ use garde::{Unvalidated, Validate};
 
 use super::normalize;
 
-/// Untrusted input used when creating a contact.
-///
-/// Construction performs field-specific normalization, but the value remains
-/// untrusted until Garde converts it from `Unvalidated<Self>` to `Valid<Self>`.
 #[derive(Debug, Clone, PartialEq, Eq, Validate)]
-pub(crate) struct CreateContactInput {
+pub(crate) struct UpdateContactInput {
     #[garde(length(chars, min = 1, max = 200))]
     name: String,
 
@@ -15,7 +11,7 @@ pub(crate) struct CreateContactInput {
     email: String,
 }
 
-impl CreateContactInput {
+impl UpdateContactInput {
     pub(crate) fn from_untrusted(
         name: impl AsRef<str>,
         email: impl AsRef<str>,

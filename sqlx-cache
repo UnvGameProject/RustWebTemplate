@@ -1,0 +1,77 @@
+#!/usr/bin/env sh
+set -eu
+
+PROJECT_ROOT="$(
+    CDPATH= cd -- "$(dirname -- "$0")" &&
+    pwd
+)"
+
+cd "$PROJECT_ROOT"
+
+compose() {
+    docker compose \
+        --project-directory "$PROJECT_ROOT" \
+        -f "$PROJECT_ROOT/compose.yaml" \
+        "$@"
+}
+
+usage() {
+    echo "Usage: ./sqlx-cache <prepare|check>" >&2
+    exit 2
+}
+
+ACTION="${1:-}"
+[ "$#" -eq 1 ] || usage
+
+case "$ACTION" in
+    prepare|check)
+        ;;
+    *)
+        usage
+        ;;
+esac
+
+restart_app() {
+    compose up -d app >/dev/null
+}
+
+trap restart_app EXIT HUP INT TERM
+
+compose stop app >/dev/null
+
+case "$ACTION" in
+    prepare)
+        compose run --rm --no-deps \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            app \
+            sh -c '
+                unset SQLX_OFFLINE
+
+                password="$(cat "$DB_PASSWORD_FILE")"
+
+                export DATABASE_URL="postgres://${DB_USER}:${password}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+
+                cargo sqlx prepare -- --all-targets
+
+                chown -R "${HOST_UID}:${HOST_GID}" /app/.sqlx
+            '
+        ;;
+
+    check)
+        compose run --rm --no-deps \
+            app \
+            sh -c '
+                unset SQLX_OFFLINE
+
+                password="$(cat "$DB_PASSWORD_FILE")"
+
+                export DATABASE_URL="postgres://${DB_USER}:${password}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+
+                cargo sqlx prepare --check -- --all-targets
+            '
+        ;;
+esac
+
+trap - EXIT HUP INT TERM
+restart_app

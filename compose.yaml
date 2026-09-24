@@ -72,6 +72,7 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     init: true
+    command: ["topcoat", "dev", "--bin", "topcoat-poc"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -84,6 +85,10 @@ services:
       PORT: 3000
       RUST_BACKTRACE: 1
       CARGO_TARGET_DIR: /app/target
+
+      # Topcoat dev rebuilds must use checked-in SQLx query metadata.
+      # Online metadata generation is handled separately by ./sqlx-cache.
+      SQLX_OFFLINE: "true"
 
       DB_HOST: postgres
       DB_PORT: "5432"

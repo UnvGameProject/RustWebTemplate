@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use crate::domain::contact::CreateContactInput;
+use crate::domain::contact::{ContactError, CreateContactInput, UpdateContactInput};
 
 use super::super::Contact;
 
@@ -130,7 +130,9 @@ async fn create_persists_validated_contact(pool: PgPool) -> Result<(), sqlx::Err
         .validate()
         .expect("contact input should be valid");
 
-    let contact = Contact::create(&pool, &input).await?;
+    let contact = Contact::create(&pool, &input)
+        .await
+        .expect("contact should be created");
 
     assert_eq!(contact.name, "Ada Lovelace");
     assert_eq!(contact.email, "ada@example.com");
@@ -138,6 +140,138 @@ async fn create_persists_validated_contact(pool: PgPool) -> Result<(), sqlx::Err
     let persisted = Contact::find_by_id(&pool, contact.id).await?;
 
     assert_eq!(persisted, Some(contact));
+
+    Ok(())
+}
+
+#[sqlx::test]
+async fn create_maps_duplicate_email_to_contact_error(pool: PgPool) -> Result<(), sqlx::Error> {
+    let first = CreateContactInput::from_untrusted("Ada Lovelace", "ada@example.com")
+        .validate()
+        .expect("first contact should be valid");
+
+    Contact::create(&pool, &first)
+        .await
+        .expect("first contact should be created");
+
+    let duplicate = CreateContactInput::from_untrusted("Another Ada", "ADA@example.com")
+        .validate()
+        .expect("duplicate contact input should still be valid");
+
+    let error = Contact::create(&pool, &duplicate)
+        .await
+        .expect_err("duplicate email should be rejected");
+
+    assert!(matches!(error, ContactError::EmailAlreadyExists));
+
+    Ok(())
+}
+
+#[sqlx::test]
+async fn update_persists_validated_contact(pool: PgPool) -> Result<(), sqlx::Error> {
+    let contact = insert_contact(
+        &pool,
+        Uuid::new_v4(),
+        "Ada Lovelace",
+        "ada@example.com",
+        OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+    )
+    .await?;
+
+    let input = UpdateContactInput::from_untrusted("  Grace Hopper  ", "  GRACE@Example.COM  ")
+        .validate()
+        .expect("updated contact should be valid");
+
+    let updated = Contact::update(&pool, contact.id, &input)
+        .await
+        .expect("contact should update");
+
+    assert_eq!(updated.id, contact.id);
+    assert_eq!(updated.name, "Grace Hopper");
+    assert_eq!(updated.email, "grace@example.com");
+    assert_eq!(updated.created_at, contact.created_at);
+    assert!(updated.updated_at > contact.updated_at);
+
+    Ok(())
+}
+
+#[sqlx::test]
+async fn update_returns_not_found_for_missing_contact(pool: PgPool) -> Result<(), sqlx::Error> {
+    let input = UpdateContactInput::from_untrusted("Grace Hopper", "grace@example.com")
+        .validate()
+        .expect("updated contact should be valid");
+
+    let error = Contact::update(&pool, Uuid::new_v4(), &input)
+        .await
+        .expect_err("missing contact should not update");
+
+    assert!(matches!(error, ContactError::NotFound));
+
+    Ok(())
+}
+
+#[sqlx::test]
+async fn update_maps_duplicate_email_to_contact_error(pool: PgPool) -> Result<(), sqlx::Error> {
+    let first = insert_contact(
+        &pool,
+        Uuid::new_v4(),
+        "Ada Lovelace",
+        "ada@example.com",
+        OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+    )
+    .await?;
+
+    let second = insert_contact(
+        &pool,
+        Uuid::new_v4(),
+        "Grace Hopper",
+        "grace@example.com",
+        OffsetDateTime::UNIX_EPOCH + Duration::hours(2),
+    )
+    .await?;
+
+    let input = UpdateContactInput::from_untrusted("Grace Hopper", first.email)
+        .validate()
+        .expect("updated contact should be valid");
+
+    let error = Contact::update(&pool, second.id, &input)
+        .await
+        .expect_err("duplicate email should be rejected");
+
+    assert!(matches!(error, ContactError::EmailAlreadyExists));
+
+    Ok(())
+}
+
+#[sqlx::test]
+async fn delete_removes_existing_contact(pool: PgPool) -> Result<(), sqlx::Error> {
+    let contact = insert_contact(
+        &pool,
+        Uuid::new_v4(),
+        "Ada Lovelace",
+        "ada@example.com",
+        OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+    )
+    .await?;
+
+    Contact::delete(&pool, contact.id)
+        .await
+        .expect("existing contact should be deleted");
+
+    let persisted = Contact::find_by_id(&pool, contact.id).await?;
+
+    assert_eq!(persisted, None);
+
+    Ok(())
+}
+
+#[sqlx::test]
+async fn delete_returns_not_found_for_missing_contact(pool: PgPool) -> Result<(), sqlx::Error> {
+    let error = Contact::delete(&pool, Uuid::new_v4())
+        .await
+        .expect_err("missing contact should not delete");
+
+    assert!(matches!(error, ContactError::NotFound));
 
     Ok(())
 }

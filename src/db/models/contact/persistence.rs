@@ -2,7 +2,7 @@ use garde::Valid;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::domain::contact::CreateContactInput;
+use crate::domain::contact::{ContactError, CreateContactInput, UpdateContactInput};
 
 use super::Contact;
 
@@ -14,7 +14,7 @@ impl Contact {
     pub(crate) async fn create(
         pool: &PgPool,
         input: &Valid<CreateContactInput>,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<Self, ContactError> {
         let id = Uuid::new_v4();
 
         sqlx::query_as!(
@@ -39,6 +39,39 @@ impl Contact {
         )
         .fetch_one(pool)
         .await
+        .map_err(map_contact_error)
+    }
+
+    pub(crate) async fn update(
+        pool: &PgPool,
+        id: Uuid,
+        input: &Valid<UpdateContactInput>,
+    ) -> Result<Self, ContactError> {
+        let contact = sqlx::query_as!(
+            Contact,
+            r#"
+        UPDATE public.contacts
+        SET
+            name = $2,
+            email = $3,
+            updated_at = now()
+        WHERE id = $1
+        RETURNING
+            id,
+            name,
+            email,
+            created_at,
+            updated_at
+        "#,
+            id,
+            input.name(),
+            input.email(),
+        )
+        .fetch_optional(pool)
+        .await
+        .map_err(map_contact_error)?;
+
+        contact.ok_or(ContactError::NotFound)
     }
 
     /// Fetch one contact by primary key.
@@ -90,6 +123,38 @@ impl Contact {
         )
         .fetch_one(pool)
         .await
+    }
+
+    pub(crate) async fn delete(pool: &PgPool, id: Uuid) -> Result<(), ContactError> {
+        let result = sqlx::query!(
+            r#"
+        DELETE FROM public.contacts
+        WHERE id = $1
+        "#,
+            id,
+        )
+        .execute(pool)
+        .await
+        .map_err(map_contact_error)?;
+
+        if result.rows_affected() == 0 {
+            return Err(ContactError::NotFound);
+        }
+
+        Ok(())
+    }
+}
+
+fn map_contact_error(error: sqlx::Error) -> ContactError {
+    match &error {
+        sqlx::Error::Database(database_error)
+            if database_error.is_unique_violation()
+                && database_error.constraint() == Some("contacts_email_unique") =>
+        {
+            ContactError::EmailAlreadyExists
+        }
+
+        _ => ContactError::storage(error),
     }
 }
 
