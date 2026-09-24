@@ -10,9 +10,11 @@ use self::{create::create_contact, list::contact_list};
 
 mod create;
 mod list;
-
+mod row;
 #[cfg(test)]
 mod tests;
+mod update;
+mod validation;
 
 #[page("/contacts")]
 async fn contacts(cx: &Cx) -> Result<impl View> {

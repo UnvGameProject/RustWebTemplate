@@ -1,4 +1,4 @@
-use super::create::validation_outcome;
+use super::validation::validation_outcome;
 use crate::domain::contact::CreateContactInput;
 
 #[test]

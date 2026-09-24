@@ -8,6 +8,8 @@ use topcoat::{
 
 use crate::db::models::contact::Contact;
 
+use super::row::contact_row;
+
 #[shard]
 pub(super) async fn contact_list(cx: &Cx, refresh: f64) -> Result<impl View> {
     let _ = refresh;
@@ -29,15 +31,18 @@ pub(super) async fn contact_list(cx: &Cx, refresh: f64) -> Result<impl View> {
                                 <tr>
                                     <th scope="col">"Name"</th>
                                     <th scope="col">"Email"</th>
+                                    <th class="text-end" scope="col">"Actions"</th>
                                 </tr>
                             </thead>
 
                             <tbody>
                                 for contact in contact_rows {
-                                    <tr>
-                                        <td>(contact.name)</td>
-                                        <td>(contact.email)</td>
-                                    </tr>
+                                    contact_row(
+                                        key: contact.id.to_string(),
+                                        id: contact.id.to_string(),
+                                        initial_name: contact.name,
+                                        initial_email: contact.email,
+                                    )
                                 }
                             </tbody>
                         </table>
