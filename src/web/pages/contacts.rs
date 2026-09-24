@@ -12,13 +12,27 @@ use crate::{
     domain::contact::{ContactError, CreateContactInput},
 };
 
+fn validation_outcome(report: &garde::Report) -> &'static str {
+    let name_invalid = garde::select!(report, name).next().is_some();
+    let email_invalid = garde::select!(report, email).next().is_some();
+
+    match (name_invalid, email_invalid) {
+        (true, true) => "validation_both",
+        (true, false) => "validation_name",
+        (false, true) => "validation_email",
+        (false, false) => "validation",
+    }
+}
+
 #[procedure]
 async fn create_contact(cx: &Cx, name: String, email: String) -> Result<String> {
     let input = CreateContactInput::from_untrusted(name, email);
 
     let input = match input.validate() {
         Ok(input) => input,
-        Err(_) => return Ok("validation".to_owned()),
+        Err(report) => {
+            return Ok(validation_outcome(&report).to_owned());
+        }
     };
 
     let pool = app_context::<PgPool>(cx);
@@ -82,6 +96,8 @@ async fn contacts(cx: &Cx) -> Result<impl View> {
     let name = signal(cx, String::new);
     let email = signal(cx, String::new);
     let status = signal(cx, String::new);
+    let name_error = signal(cx, String::new);
+    let email_error = signal(cx, String::new);
     let refresh = signal(cx, || 0.0);
 
     Ok(view! {
@@ -130,15 +146,7 @@ async fn contacts(cx: &Cx) -> Result<impl View> {
                                 role="alert"
                                 :hidden=$(status.get() != "validation")
                             >
-                                "The submitted contact information is invalid."
-                            </div>
-
-                            <div
-                                class="alert alert-warning"
-                                role="alert"
-                                :hidden=$(status.get() != "duplicate")
-                            >
-                                "A contact with this email address already exists."
+                                "Please correct the highlighted fields."
                             </div>
 
                             <div
@@ -154,18 +162,59 @@ async fn contacts(cx: &Cx) -> Result<impl View> {
                                 @submit=$(async |e: Event| {
                                     e.prevent_default();
 
+                                    name_error.set("".to_owned());
+                                    email_error.set("".to_owned());
                                     status.set("submitting".to_owned());
 
                                     let outcome =
                                         create_contact(name.get(), email.get()).await;
 
+                                    if outcome == "validation_name" {
+                                        name_error.set(
+                                            "Name is required and must be 200 characters or fewer."
+                                                .to_owned()
+                                        );
+                                        status.set("validation".to_owned());
+                                    }
+
+                                    if outcome == "validation_email" {
+                                        email_error.set(
+                                            "Enter a valid email address no longer than 320 characters."
+                                                .to_owned()
+                                        );
+                                        status.set("validation".to_owned());
+                                    }
+
+                                    if outcome == "validation_both" {
+                                        name_error.set(
+                                            "Name is required and must be 200 characters or fewer."
+                                                .to_owned()
+                                        );
+                                        email_error.set(
+                                            "Enter a valid email address no longer than 320 characters."
+                                                .to_owned()
+                                        );
+                                        status.set("validation".to_owned());
+                                    }
+
+                                    if outcome == "duplicate" {
+                                        email_error.set(
+                                            "A contact with this email address already exists."
+                                                .to_owned()
+                                        );
+                                        status.set("validation".to_owned());
+                                    }
+
                                     if outcome == "created" {
                                         name.set("".to_owned());
                                         email.set("".to_owned());
                                         refresh.increment();
+                                        status.set("created".to_owned());
                                     }
 
-                                    status.set(outcome);
+                                    if outcome == "error" {
+                                        status.set("error".to_owned());
+                                    }
                                 })
                             >
                                 <div class="mb-3">
@@ -187,6 +236,12 @@ async fn contacts(cx: &Cx) -> Result<impl View> {
                                             name.set(e.target.value);
                                         })
                                     >
+                                    <div
+                                        class="invalid-feedback d-block"
+                                        :hidden=$(name_error.get() == "")
+                                    >
+                                        $(name_error.get())
+                                    </div>
                                 </div>
 
                                 <div class="mb-3">
@@ -208,6 +263,12 @@ async fn contacts(cx: &Cx) -> Result<impl View> {
                                             email.set(e.target.value);
                                         })
                                     >
+                                    <div
+                                        class="invalid-feedback d-block"
+                                        :hidden=$(email_error.get() == "")
+                                    >
+                                        $(email_error.get())
+                                    </div>
                                 </div>
 
                                 <button
@@ -232,3 +293,6 @@ async fn contacts(cx: &Cx) -> Result<impl View> {
         </main>
     })
 }
+
+#[cfg(test)]
+mod tests;
