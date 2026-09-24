@@ -9,6 +9,7 @@ use topcoat::{
 use self::{create::create_contact, list::contact_list};
 
 mod create;
+mod delete;
 mod list;
 mod row;
 #[cfg(test)]
@@ -214,7 +215,7 @@ async fn contacts(cx: &Cx) -> Result<impl View> {
                         <h2 class="h4 mb-0">"Existing contacts"</h2>
                     </div>
 
-                    contact_list(refresh: $(refresh.get()))
+                    contact_list(refresh: $(refresh))
                 </section>
             </div>
         </main>

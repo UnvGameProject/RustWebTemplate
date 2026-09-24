@@ -1,11 +1,11 @@
 use topcoat::{
     Result,
     context::Cx,
-    runtime::{Event, signal},
+    runtime::{Event, Signal, signal},
     view::{View, component, view},
 };
 
-use super::update::update_contact;
+use super::{delete::delete_contact, update::update_contact};
 
 #[component]
 pub(super) async fn contact_row(
@@ -13,6 +13,7 @@ pub(super) async fn contact_row(
     id: String,
     initial_name: String,
     initial_email: String,
+    refresh: &Signal<f64>,
 ) -> Result<impl View> {
     let editing = signal(cx, || false);
 
@@ -26,8 +27,17 @@ pub(super) async fn contact_row(
     let name_error = signal(cx, String::new);
     let email_error = signal(cx, String::new);
 
+    let confirming_delete = signal(cx, || false);
+    let delete_status = signal(cx, String::new);
+
+    let row_id = format!("contact-{id}");
+
+    // Keep independent captured IDs for the two browser-side procedures.
+    let update_id = id.clone();
+    let delete_id = id;
+
     Ok(view! {
-        <tr>
+        <tr id=(row_id)>
             <td>
                 <span :hidden=$(editing.get())>
                     $(saved_name.get())
@@ -80,22 +90,38 @@ pub(super) async fn contact_row(
 
             <td class="text-end">
                 <div :hidden=$(editing.get())>
-                    <button
-                        class="btn btn-sm btn-outline-primary"
-                        type="button"
-                        @click=$(|_e| {
-                            draft_name.set(saved_name.get());
-                            draft_email.set(saved_email.get());
+                    <div class="d-flex justify-content-end gap-2">
+                        <button
+                            class="btn btn-sm btn-outline-primary"
+                            type="button"
+                            :disabled=$(confirming_delete.get())
+                            @click=$(|_e| {
+                                draft_name.set(saved_name.get());
+                                draft_email.set(saved_email.get());
 
-                            name_error.set("".to_owned());
-                            email_error.set("".to_owned());
-                            status.set("".to_owned());
+                                name_error.set("".to_owned());
+                                email_error.set("".to_owned());
+                                status.set("".to_owned());
 
-                            editing.set(true);
-                        })
-                    >
-                        "Edit"
-                    </button>
+                                editing.set(true);
+                            })
+                        >
+                            "Edit"
+                        </button>
+
+                        <button
+                            class="btn btn-sm btn-outline-danger"
+                            type="button"
+                            :disabled=$(confirming_delete.get())
+                            @click=$(|_e| {
+                                status.set("".to_owned());
+                                delete_status.set("".to_owned());
+                                confirming_delete.set(true);
+                            })
+                        >
+                            "Delete"
+                        </button>
+                    </div>
 
                     <div
                         class="small text-success mt-2"
@@ -103,6 +129,89 @@ pub(super) async fn contact_row(
                         :hidden=$(status.get() != "updated")
                     >
                         "Contact updated."
+                    </div>
+
+                    <div
+                        class="border border-danger rounded-3 p-3 mt-2 text-start"
+                        :hidden=$(!confirming_delete.get())
+                    >
+                        <div class="small fw-semibold">
+                            "Delete this contact?"
+                        </div>
+
+                        <div class="small text-body-secondary mt-1">
+                            "This action cannot be undone."
+                        </div>
+
+                        <div class="d-flex gap-2 mt-3">
+                            <button
+                                class="btn btn-sm btn-danger"
+                                type="button"
+                                :disabled=$(delete_status.get() == "submitting")
+                                @click=$(async |_e| {
+                                    delete_status.set("submitting".to_owned());
+
+                                    let outcome =
+                                        delete_contact(delete_id).await;
+
+                                    if outcome.is_ok() {
+                                        refresh.increment();
+                                    } else {
+                                        let error = outcome.unwrap_err();
+
+                                        if error == "not_found" {
+                                            delete_status.set(
+                                                "not_found".to_owned()
+                                            );
+                                        }
+
+                                        if error == "error" {
+                                            delete_status.set(
+                                                "error".to_owned()
+                                            );
+                                        }
+                                    }
+                                })
+                            >
+                                "Confirm delete"
+                            </button>
+
+                            <button
+                                class="btn btn-sm btn-outline-secondary"
+                                type="button"
+                                :disabled=$(delete_status.get() == "submitting")
+                                @click=$(|_e| {
+                                    delete_status.set("".to_owned());
+                                    confirming_delete.set(false);
+                                })
+                            >
+                                "Cancel"
+                            </button>
+                        </div>
+
+                        <div
+                            class="small text-secondary mt-2"
+                            role="status"
+                            :hidden=$(delete_status.get() != "submitting")
+                        >
+                            "Deleting..."
+                        </div>
+
+                        <div
+                            class="small text-warning mt-2"
+                            role="alert"
+                            :hidden=$(delete_status.get() != "not_found")
+                        >
+                            "This contact is no longer available."
+                        </div>
+
+                        <div
+                            class="small text-danger mt-2"
+                            role="alert"
+                            :hidden=$(delete_status.get() != "error")
+                        >
+                            "The contact could not be deleted."
+                        </div>
                     </div>
                 </div>
 
@@ -118,7 +227,7 @@ pub(super) async fn contact_row(
                                 status.set("submitting".to_owned());
 
                                 let outcome = update_contact(
-                                    id,
+                                    update_id,
                                     draft_name.get(),
                                     draft_email.get(),
                                 ).await;
