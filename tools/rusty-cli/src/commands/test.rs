@@ -10,18 +10,38 @@ use crate::{cli::TestArgs, commands::CommandResult, project::Project};
 
 pub(crate) fn run(args: TestArgs) -> CommandResult {
     let project = Project::discover()?;
-
     let module_path = normalize_module_path(&args.module)?;
-    let test_name = normalize_test_name(&args.name)?;
 
-    let module_dir = project.root().join("src").join(&module_path);
+    if args.view {
+        scaffold_view_test(project.root(), &module_path)?;
+    } else {
+        let raw_name = args.name.as_deref().ok_or_else(|| {
+            io::Error::new(
+                ErrorKind::InvalidInput,
+                "test name is required unless --view is used",
+            )
+        })?;
+
+        let test_name = normalize_test_name(raw_name)?;
+
+        scaffold_module_test(project.root(), &module_path, &test_name)?;
+    }
+
+    Ok(())
+}
+
+fn scaffold_module_test(
+    project_root: &Path,
+    module_path: &Path,
+    test_name: &str,
+) -> io::Result<()> {
+    let module_dir = project_root.join("src").join(module_path);
 
     if !module_dir.is_dir() {
         return Err(io::Error::new(
             ErrorKind::NotFound,
             format!("target module does not exist: {}", module_dir.display()),
-        )
-        .into());
+        ));
     }
 
     let module_mod = module_dir.join("mod.rs");
@@ -30,8 +50,7 @@ pub(crate) fn run(args: TestArgs) -> CommandResult {
         return Err(io::Error::new(
             ErrorKind::NotFound,
             format!("target module has no mod.rs: {}", module_mod.display()),
-        )
-        .into());
+        ));
     }
 
     let tests_dir = module_dir.join("tests");
@@ -45,8 +64,7 @@ pub(crate) fn run(args: TestArgs) -> CommandResult {
                 "refusing to overwrite existing test file: {}",
                 test_file.display()
             ),
-        )
-        .into());
+        ));
     }
 
     fs::create_dir_all(&tests_dir)?;
@@ -65,12 +83,12 @@ pub(crate) fn run(args: TestArgs) -> CommandResult {
 
     if let Err(error) = ensure_parent_tests_module(&module_mod) {
         let _ = fs::remove_file(&test_file);
-        return Err(error.into());
+        return Err(error);
     }
 
-    if let Err(error) = ensure_test_module(&tests_mod, &test_name) {
+    if let Err(error) = ensure_test_module(&tests_mod, test_name) {
         let _ = fs::remove_file(&test_file);
-        return Err(error.into());
+        return Err(error);
     }
 
     println!("Created test:");
@@ -79,6 +97,74 @@ pub(crate) fn run(args: TestArgs) -> CommandResult {
     println!("Module registration verified:");
     println!("  {}", module_mod.display());
     println!("  {}", tests_mod.display());
+
+    Ok(())
+}
+
+fn scaffold_view_test(project_root: &Path, module_path: &Path) -> io::Result<()> {
+    let src_dir = project_root.join("src");
+
+    let source_file = src_dir.join(module_path).with_extension("rs");
+
+    if !source_file.is_file() {
+        return Err(io::Error::new(
+            ErrorKind::NotFound,
+            format!(
+                "target view module does not exist: {}",
+                source_file.display()
+            ),
+        ));
+    }
+
+    let tests_dir = src_dir.join(module_path);
+    let conflicting_mod = tests_dir.join("mod.rs");
+
+    if conflicting_mod.exists() {
+        return Err(io::Error::new(
+            ErrorKind::InvalidInput,
+            format!(
+                "view-associated test directory may not contain mod.rs: {}",
+                conflicting_mod.display()
+            ),
+        ));
+    }
+
+    let test_file = tests_dir.join("tests.rs");
+
+    if test_file.exists() {
+        return Err(io::Error::new(
+            ErrorKind::AlreadyExists,
+            format!(
+                "refusing to overwrite existing view test file: {}",
+                test_file.display()
+            ),
+        ));
+    }
+
+    fs::create_dir_all(&tests_dir)?;
+
+    let module_display = module_path.to_string_lossy().replace('\\', "/");
+
+    let contents = format!(
+        "\
+//! Tests associated with `src/{module_display}.rs`.
+//!
+//! Add tests for this view-backed module here.
+"
+    );
+
+    write_new(&test_file, &contents)?;
+
+    if let Err(error) = ensure_parent_tests_module(&source_file) {
+        let _ = fs::remove_file(&test_file);
+        return Err(error);
+    }
+
+    println!("Created view-associated test:");
+    println!("  {}", test_file.display());
+    println!();
+    println!("Module registration verified:");
+    println!("  {}", source_file.display());
 
     Ok(())
 }
@@ -311,3 +397,6 @@ fn is_rust_keyword(value: &str) -> bool {
             | "yield"
     )
 }
+
+#[cfg(test)]
+mod tests;

@@ -50,11 +50,20 @@ pub(crate) struct MigrationArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct TestArgs {
-    /// Module path relative to src/, e.g. db/models/contact.
+    /// Module path relative to src/, e.g. db/models/contact or web/pages/contacts.
     pub(crate) module: String,
 
     /// Test file name, e.g. persistence or ContactPersistence.
-    pub(crate) name: String,
+    ///
+    /// Omit this when using --view.
+    #[arg(required_unless_present = "view")]
+    pub(crate) name: Option<String>,
+
+    /// Create tests.rs for a file-backed view module instead of a directory module.
+    ///
+    /// Example: rusty make:test --view web/pages/contacts
+    #[arg(long, conflicts_with = "name")]
+    pub(crate) view: bool,
 }
 
 #[derive(Debug, Args)]
@@ -66,3 +75,6 @@ pub(crate) struct CommandArgs {
     #[arg(long)]
     pub(crate) dry_run: bool,
 }
+
+#[cfg(test)]
+mod tests;
