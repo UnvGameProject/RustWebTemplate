@@ -1,19 +1,35 @@
 #!/usr/bin/env sh
 set -eu
 
-docker compose up -d rusty >/dev/null
+PROJECT_ROOT="$(
+    CDPATH= cd -- "$(dirname -- "$0")" &&
+    pwd
+)"
 
 UID_VALUE="$(id -u)"
 GID_VALUE="$(id -g)"
 
+docker compose \
+    --project-directory "$PROJECT_ROOT" \
+    -f "$PROJECT_ROOT/compose.yaml" \
+    up -d rusty >/dev/null
+
 if [ -t 0 ] && [ -t 1 ]; then
-    exec docker compose exec \
+    exec docker compose \
+        --project-directory "$PROJECT_ROOT" \
+        -f "$PROJECT_ROOT/compose.yaml" \
+        exec \
+        --workdir /workspace \
         --user "${UID_VALUE}:${GID_VALUE}" \
         rusty \
         rusty "$@"
 else
-    exec docker compose exec \
+    exec docker compose \
+        --project-directory "$PROJECT_ROOT" \
+        -f "$PROJECT_ROOT/compose.yaml" \
+        exec \
         -T \
+        --workdir /workspace \
         --user "${UID_VALUE}:${GID_VALUE}" \
         rusty \
         rusty "$@"

@@ -1,9 +1,46 @@
+use garde::Valid;
 use sqlx::PgPool;
 use uuid::Uuid;
+
+use crate::domain::contact::CreateContactInput;
 
 use super::Contact;
 
 impl Contact {
+    /// Persist a previously validated contact creation command.
+    ///
+    /// Accepting `Valid<CreateContactInput>` prevents unvalidated contact input
+    /// from crossing this persistence boundary.
+    pub(crate) async fn create(
+        pool: &PgPool,
+        input: &Valid<CreateContactInput>,
+    ) -> Result<Self, sqlx::Error> {
+        let id = Uuid::new_v4();
+
+        sqlx::query_as!(
+            Contact,
+            r#"
+        INSERT INTO public.contacts (
+            id,
+            name,
+            email
+        )
+        VALUES ($1, $2, $3)
+        RETURNING
+            id,
+            name,
+            email,
+            created_at,
+            updated_at
+        "#,
+            id,
+            input.name(),
+            input.email(),
+        )
+        .fetch_one(pool)
+        .await
+    }
+
     /// Fetch one contact by primary key.
     pub(crate) async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
@@ -84,9 +121,7 @@ fn schema_shape_contract() {
 /// Assigning those values into `Contact` then requires Rust's exact
 /// assignment rules to succeed.
 #[allow(dead_code)]
-async fn schema_nullability_contract(
-    pool: &PgPool,
-) -> Result<(), sqlx::Error> {
+async fn schema_nullability_contract(pool: &PgPool) -> Result<(), sqlx::Error> {
     let row = sqlx::query!(
         r#"
         SELECT
@@ -99,8 +134,8 @@ async fn schema_nullability_contract(
         LIMIT 1
         "#
     )
-        .fetch_one(pool)
-        .await?;
+    .fetch_one(pool)
+    .await?;
 
     let _ = Contact {
         id: row.id,

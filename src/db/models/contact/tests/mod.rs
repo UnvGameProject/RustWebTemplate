@@ -1,1 +1,1 @@
-// Module-local Contact tests live here.
+mod persistence;
