@@ -38,9 +38,9 @@ pub(super) async fn contact_list(cx: &Cx, refresh: Signal<f64>) -> Result<impl V
                             </thead>
 
                             <tbody>
+                                #[key(contact.id.to_string())]
                                 for contact in contact_rows {
                                     contact_row(
-                                        key: contact.id.to_string(),
                                         id: contact.id.to_string(),
                                         initial_name: contact.name,
                                         initial_email: contact.email,

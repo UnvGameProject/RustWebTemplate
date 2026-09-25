@@ -335,7 +335,7 @@ The initial frontend/runtime baseline is working.
 Verified:
 
 - Rust 1.98.1 development toolchain
-- Topcoat 0.8.1
+- Topcoat 0.9.0
 - Dockerized development environment
 - Direct Topcoat HTTP serving on localhost
 - Server-side rendering
@@ -399,7 +399,7 @@ The first complete Contact create/update/delete workflow and validation boundary
 
 - Rust 1.98.1
 - Rust edition 2024
-- Topcoat 0.8.1
+- Topcoat 0.9.0
 - Tokio
 
 ### Frontend

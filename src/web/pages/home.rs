@@ -19,7 +19,7 @@ async fn home(cx: &Cx) -> Result<impl View> {
                     </span>
 
                     <span class="text-secondary small">
-                        "Topcoat 0.8.1 | Rust 1.98 | Bootstrap 5.3.8 | Docker"
+                        "Topcoat 0.9.0 | Rust 1.98 | Bootstrap 5.3.8 | Docker"
                     </span>
                 </div>
 
