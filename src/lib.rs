@@ -2,6 +2,7 @@ mod app;
 mod config;
 mod db;
 pub(crate) mod domain;
+pub(crate) mod input;
 mod web;
 
 use std::error::Error;

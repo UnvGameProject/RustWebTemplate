@@ -25,3 +25,11 @@ fn rejects_invalid_email() {
 
     assert!(result.is_err());
 }
+
+#[test]
+fn rejects_html_markup_in_plain_text_name() {
+    let result =
+        UpdateContactInput::from_untrusted("<b>Bold Person</b>", "bold@example.com").validate();
+
+    assert!(result.is_err());
+}

@@ -1,0 +1,5 @@
+error: #[normalize(...)] currently supports String fields only
+  --> tests/ui/input_policy/fail_wrong_type.rs:12:12
+   |
+12 |     value: u64,
+   |            ^^^

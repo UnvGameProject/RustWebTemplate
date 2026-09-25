@@ -1,0 +1,5 @@
+error: duplicate normalization operation
+  --> tests/ui/input_policy/fail_duplicate.rs:11:23
+   |
+11 |     #[normalize(trim, trim)]
+   |                       ^^^^

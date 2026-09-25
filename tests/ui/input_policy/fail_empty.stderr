@@ -1,0 +1,5 @@
+error: #[normalize(...)] requires at least one operation
+  --> tests/ui/input_policy/fail_empty.rs:11:5
+   |
+11 |     #[normalize()]
+   |     ^

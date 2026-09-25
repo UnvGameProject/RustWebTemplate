@@ -1,0 +1,5 @@
+error: normalization operations do not accept values
+  --> tests/ui/input_policy/fail_arguments.rs:11:17
+   |
+11 |     #[normalize(trim(true))]
+   |                 ^^^^

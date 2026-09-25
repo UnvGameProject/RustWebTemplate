@@ -1,16 +1,17 @@
 use garde::{Unvalidated, Validate};
 
-use super::normalize;
+use crate::input::Normalize;
 
-/// Untrusted input used when creating a contact.
-///
-/// Construction performs field-specific normalization, but the value remains
-/// untrusted until Garde converts it from `Unvalidated<Self>` to `Valid<Self>`.
-#[derive(Debug, Clone, PartialEq, Eq, Validate)]
+#[derive(Debug, Validate, Normalize)]
 pub(crate) struct CreateContactInput {
-    #[garde(length(chars, min = 1, max = 200))]
+    #[normalize(trim)]
+    #[garde(
+        length(chars, min = 1, max = 200),
+        custom(crate::input::validation::plain_text)
+    )]
     name: String,
 
+    #[normalize(trim, ascii_lowercase)]
     #[garde(email, length(chars, min = 3, max = 320))]
     email: String,
 }
@@ -20,10 +21,14 @@ impl CreateContactInput {
         name: impl AsRef<str>,
         email: impl AsRef<str>,
     ) -> Unvalidated<Self> {
-        Unvalidated::new(Self {
-            name: normalize::name(name.as_ref()),
-            email: normalize::email(email.as_ref()),
-        })
+        let mut input = Self {
+            name: name.as_ref().to_owned(),
+            email: email.as_ref().to_owned(),
+        };
+
+        input.normalize();
+
+        Unvalidated::new(input)
     }
 
     pub(crate) fn name(&self) -> &str {

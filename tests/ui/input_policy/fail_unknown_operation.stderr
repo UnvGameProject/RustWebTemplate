@@ -1,0 +1,5 @@
+error: unsupported normalization operation; supported operations: trim, ascii_lowercase
+  --> tests/ui/input_policy/fail_unknown_operation.rs:11:23
+   |
+11 |     #[normalize(trim, magic)]
+   |                       ^^^^^
