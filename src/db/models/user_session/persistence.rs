@@ -77,6 +77,7 @@ impl UserSession {
                 expires_at = $2,
                 updated_at = now()
             WHERE token_hash = $1
+            AND expires_at > now()
             RETURNING
                 token_hash,
                 user_id,
@@ -109,6 +110,7 @@ impl UserSession {
                 expires_at = $3,
                 updated_at = now()
             WHERE token_hash = $1
+            AND expires_at > now()
             RETURNING
                 token_hash,
                 user_id,

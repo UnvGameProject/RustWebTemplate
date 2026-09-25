@@ -172,3 +172,70 @@ async fn delete_removes_session(pool: PgPool) -> Result<(), sqlx::Error> {
 
     Ok(())
 }
+
+#[sqlx::test]
+async fn update_expiry_does_not_revive_expired_session(pool: PgPool) -> Result<(), sqlx::Error> {
+    let user = create_user(&pool, "expired-refresh@example.com").await;
+    let token_hash = [10_u8; 32];
+
+    UserSession::create(
+        &pool,
+        &token_hash,
+        user.id,
+        OffsetDateTime::now_utc() - Duration::hours(1),
+    )
+    .await?;
+
+    let result = UserSession::update_expiry(
+        &pool,
+        &token_hash,
+        OffsetDateTime::now_utc() + Duration::hours(1),
+    )
+    .await?;
+
+    assert!(result.is_none());
+
+    assert!(
+        UserSession::find_active(&pool, &token_hash)
+            .await?
+            .is_none()
+    );
+
+    Ok(())
+}
+
+#[sqlx::test]
+async fn replace_token_does_not_rotate_expired_session(pool: PgPool) -> Result<(), sqlx::Error> {
+    let user = create_user(&pool, "expired-rotate@example.com").await;
+
+    let revoked = [11_u8; 32];
+    let replacement = [12_u8; 32];
+
+    UserSession::create(
+        &pool,
+        &revoked,
+        user.id,
+        OffsetDateTime::now_utc() - Duration::hours(1),
+    )
+    .await?;
+
+    let result = UserSession::replace_token(
+        &pool,
+        &revoked,
+        &replacement,
+        OffsetDateTime::now_utc() + Duration::hours(1),
+    )
+    .await?;
+
+    assert!(result.is_none());
+
+    assert!(UserSession::find_active(&pool, &revoked).await?.is_none());
+
+    assert!(
+        UserSession::find_active(&pool, &replacement)
+            .await?
+            .is_none()
+    );
+
+    Ok(())
+}
