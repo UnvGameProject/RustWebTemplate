@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use super::{
-    DYNAMIC_SQL, PUBLIC_INPUT_AUDITED, PUBLIC_INPUT_UNRECOGNIZED, SHELL_EXECUTION, Severity,
-    scan_source,
+    DYNAMIC_SQL, PERSISTENCE_FLOW_AUDITED, PERSISTENCE_FLOW_UNRECOGNIZED, PUBLIC_INPUT_AUDITED,
+    PUBLIC_INPUT_UNRECOGNIZED, SHELL_EXECUTION, Severity, scan_source,
 };
 
 fn scan(source: &str) -> Vec<super::Finding> {
@@ -263,4 +263,117 @@ fn non_procedure_string_is_not_treated_as_public_input() {
     );
 
     assert!(findings.is_empty());
+}
+
+#[test]
+fn recognizes_validated_input_at_persistence_sink() {
+    let findings = scan(
+        r#"
+        #[procedure]
+        async fn create_contact(
+            pool: &PgPool,
+            name: String,
+            email: String,
+        ) {
+            let input =
+                CreateContactInput::from_untrusted(name, email);
+
+            let input = match input.validate() {
+                Ok(input) => input,
+                Err(_) => return,
+            };
+
+            let _ = Contact::create(pool, &input).await;
+        }
+        "#,
+    );
+
+    assert!(findings.iter().any(|finding| {
+        finding.rule_id == PERSISTENCE_FLOW_AUDITED && finding.severity == Severity::Info
+    }));
+
+    assert!(
+        !findings
+            .iter()
+            .any(|finding| { finding.rule_id == PERSISTENCE_FLOW_UNRECOGNIZED })
+    );
+}
+
+#[test]
+fn validation_elsewhere_does_not_protect_raw_sink_argument() {
+    let findings = scan(
+        r#"
+        #[procedure]
+        async fn bad_contact(
+            pool: &PgPool,
+            name: String,
+            email: String,
+        ) {
+            let input =
+                CreateContactInput::from_untrusted(name, email);
+
+            let input = match input.validate() {
+                Ok(input) => input,
+                Err(_) => return,
+            };
+
+            let _ = &input;
+
+            let _ = Contact::create(pool, &name).await;
+        }
+        "#,
+    );
+
+    assert!(findings.iter().any(|finding| {
+        finding.rule_id == PERSISTENCE_FLOW_UNRECOGNIZED && finding.severity == Severity::Warning
+    }));
+}
+
+#[test]
+fn recognizes_parsed_uuid_at_delete_sink() {
+    let findings = scan(
+        r#"
+        #[procedure]
+        async fn delete_contact(
+            pool: &PgPool,
+            id: String,
+        ) {
+            let id = match Uuid::parse_str(&id) {
+                Ok(id) => id,
+                Err(_) => return,
+            };
+
+            let _ = Contact::delete(pool, id).await;
+        }
+        "#,
+    );
+
+    assert!(findings.iter().any(|finding| {
+        finding.rule_id == PERSISTENCE_FLOW_AUDITED && finding.severity == Severity::Info
+    }));
+
+    assert!(
+        !findings
+            .iter()
+            .any(|finding| { finding.rule_id == PERSISTENCE_FLOW_UNRECOGNIZED })
+    );
+}
+
+#[test]
+fn warns_when_raw_id_reaches_delete_sink() {
+    let findings = scan(
+        r#"
+        #[procedure]
+        async fn delete_contact(
+            pool: &PgPool,
+            id: String,
+        ) {
+            let _ = Contact::delete(pool, id).await;
+        }
+        "#,
+    );
+
+    assert!(findings.iter().any(|finding| {
+        finding.rule_id == PERSISTENCE_FLOW_UNRECOGNIZED && finding.severity == Severity::Warning
+    }));
 }

@@ -6,7 +6,7 @@ use std::{
 
 use proc_macro2::Span;
 use syn::{
-    Attribute, Expr, ExprCall, ExprMethodCall, FnArg, ItemFn, Lit, Local, Pat, PathArguments, Type,
+    Attribute, Expr, ExprCall, FnArg, ItemFn, Lit, Local, Pat, PathArguments, Type,
     spanned::Spanned,
     visit::{self, Visit},
 };
@@ -17,6 +17,8 @@ const SHELL_EXECUTION: &str = "RUSTY-AUDIT-001";
 const DYNAMIC_SQL: &str = "RUSTY-AUDIT-002";
 const PUBLIC_INPUT_AUDITED: &str = "RUSTY-AUDIT-010";
 const PUBLIC_INPUT_UNRECOGNIZED: &str = "RUSTY-AUDIT-011";
+const PERSISTENCE_FLOW_AUDITED: &str = "RUSTY-AUDIT-012";
+const PERSISTENCE_FLOW_UNRECOGNIZED: &str = "RUSTY-AUDIT-013";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Severity {
@@ -65,6 +67,29 @@ struct ProcedureInput {
     name: String,
     span: Span,
     boundary: Option<ProtectionBoundary>,
+}
+
+struct ProcedureAnalysis {
+    inputs: Vec<ProcedureInput>,
+    persistence_sinks: Vec<PersistenceSinkFlow>,
+}
+
+struct ProtectedBinding {
+    boundary: ProtectionBoundary,
+    sources: HashSet<String>,
+}
+
+struct PersistenceSinkFlow {
+    name: &'static str,
+    span: Span,
+    arguments: Vec<PersistenceSinkArgument>,
+}
+
+struct PersistenceSinkArgument {
+    role: &'static str,
+    binding: Option<String>,
+    boundary: Option<ProtectionBoundary>,
+    sources: Vec<String>,
 }
 
 pub(crate) fn run() -> CommandResult {
@@ -212,9 +237,14 @@ impl AuditVisitor<'_> {
     }
 
     fn audit_procedure(&mut self, function: &ItemFn) {
-        let Some(inputs) = analyze_procedure(function) else {
+        let Some(analysis) = analyze_procedure(function) else {
             return;
         };
+
+        let ProcedureAnalysis {
+            inputs,
+            persistence_sinks,
+        } = analysis;
 
         if inputs.is_empty() {
             return;
@@ -241,7 +271,7 @@ impl AuditVisitor<'_> {
             format!("procedure `{}`: {summary}", function.sig.ident),
         );
 
-        for input in inputs {
+        for input in &inputs {
             if input.boundary.is_some() {
                 continue;
             }
@@ -258,6 +288,54 @@ impl AuditVisitor<'_> {
                     function.sig.ident, input.name,
                 ),
             );
+        }
+
+        for sink in persistence_sinks {
+            let traced_arguments: Vec<_> = sink
+                .arguments
+                .iter()
+                .filter(|argument| !argument.sources.is_empty())
+                .collect();
+
+            if traced_arguments.is_empty() {
+                continue;
+            }
+
+            let detail = sink
+                .arguments
+                .iter()
+                .map(format_sink_argument)
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            let has_unprotected_public_flow = traced_arguments
+                .iter()
+                .any(|argument| argument.boundary.is_none());
+
+            if has_unprotected_public_flow {
+                self.report(
+                    Severity::Warning,
+                    PERSISTENCE_FLOW_UNRECOGNIZED,
+                    sink.span,
+                    "persistence sink receives public input without a recognized protection boundary",
+                    format!(
+                        "procedure `{}` -> {}: {detail}",
+                        function.sig.ident,
+                        sink.name,
+                    ),
+                );
+            } else {
+                self.report(
+                    Severity::Info,
+                    PERSISTENCE_FLOW_AUDITED,
+                    sink.span,
+                    "persistence sink public-input flow audited",
+                    format!(
+                        "procedure `{}` -> {}: {detail}",
+                        function.sig.ident, sink.name,
+                    ),
+                );
+            }
         }
     }
 }
@@ -299,7 +377,7 @@ impl<'ast> Visit<'ast> for AuditVisitor<'_> {
     }
 }
 
-fn analyze_procedure(function: &ItemFn) -> Option<Vec<ProcedureInput>> {
+fn analyze_procedure(function: &ItemFn) -> Option<ProcedureAnalysis> {
     if !has_procedure_attribute(&function.attrs) {
         return None;
     }
@@ -307,7 +385,10 @@ fn analyze_procedure(function: &ItemFn) -> Option<Vec<ProcedureInput>> {
     let mut inputs = procedure_string_inputs(function);
 
     if inputs.is_empty() {
-        return Some(inputs);
+        return Some(ProcedureAnalysis {
+            inputs,
+            persistence_sinks: Vec::new(),
+        });
     }
 
     let external_inputs = inputs.iter().map(|input| input.name.clone()).collect();
@@ -315,8 +396,8 @@ fn analyze_procedure(function: &ItemFn) -> Option<Vec<ProcedureInput>> {
     let mut flow = ProcedureFlowVisitor {
         external_inputs,
         from_untrusted_bindings: HashMap::new(),
-        validated_bindings: HashSet::new(),
-        uuid_parsed_inputs: HashSet::new(),
+        protected_bindings: HashMap::new(),
+        persistence_sinks: Vec::new(),
     };
 
     flow.visit_block(&function.block);
@@ -325,7 +406,10 @@ fn analyze_procedure(function: &ItemFn) -> Option<Vec<ProcedureInput>> {
         input.boundary = flow.boundary_for(&input.name);
     }
 
-    Some(inputs)
+    Some(ProcedureAnalysis {
+        inputs,
+        persistence_sinks: flow.persistence_sinks,
+    })
 }
 
 fn has_procedure_attribute(attributes: &[Attribute]) -> bool {
@@ -384,28 +468,69 @@ fn is_string_type(ty: &Type) -> bool {
 struct ProcedureFlowVisitor {
     external_inputs: HashSet<String>,
     from_untrusted_bindings: HashMap<String, HashSet<String>>,
-    validated_bindings: HashSet<String>,
-    uuid_parsed_inputs: HashSet<String>,
+    protected_bindings: HashMap<String, ProtectedBinding>,
+    persistence_sinks: Vec<PersistenceSinkFlow>,
 }
 
 impl ProcedureFlowVisitor {
     fn boundary_for(&self, input: &str) -> Option<ProtectionBoundary> {
-        let validated = self
-            .from_untrusted_bindings
-            .iter()
-            .any(|(binding, sources)| {
-                self.validated_bindings.contains(binding) && sources.contains(input)
-            });
+        self.protected_bindings
+            .values()
+            .find(|binding| binding.sources.contains(input))
+            .map(|binding| binding.boundary)
+    }
 
-        if validated {
-            return Some(ProtectionBoundary::ValidatedDomainInput);
+    fn record_persistence_sink(&mut self, call: &ExprCall) {
+        let Some((name, specifications)) = persistence_sink_spec(call) else {
+            return;
+        };
+
+        let arguments = specifications
+            .into_iter()
+            .map(|(role, index)| {
+                let expression = call.args.iter().nth(index);
+
+                self.classify_sink_argument(role, expression)
+            })
+            .collect();
+
+        self.persistence_sinks.push(PersistenceSinkFlow {
+            name,
+            span: call.span(),
+            arguments,
+        });
+    }
+
+    fn classify_sink_argument(
+        &self,
+        role: &'static str,
+        expression: Option<&Expr>,
+    ) -> PersistenceSinkArgument {
+        let binding = expression.and_then(expression_identifier);
+
+        let mut boundary = None;
+        let mut sources = Vec::new();
+
+        if let Some(binding_name) = binding.as_deref() {
+            if let Some(protected) = self.protected_bindings.get(binding_name) {
+                boundary = Some(protected.boundary);
+                sources.extend(protected.sources.iter().cloned());
+            } else if let Some(untrusted) = self.from_untrusted_bindings.get(binding_name) {
+                sources.extend(untrusted.iter().cloned());
+            } else if self.external_inputs.contains(binding_name) {
+                sources.push(binding_name.to_owned());
+            }
         }
 
-        if self.uuid_parsed_inputs.contains(input) {
-            return Some(ProtectionBoundary::UuidParse);
-        }
+        sources.sort();
+        sources.dedup();
 
-        None
+        PersistenceSinkArgument {
+            role,
+            binding,
+            boundary,
+            sources,
+        }
     }
 }
 
@@ -422,24 +547,35 @@ impl<'ast> Visit<'ast> for ProcedureFlowVisitor {
                     .insert(binding.clone(), sources.into_iter().collect());
             }
 
-            if self.external_inputs.contains(&binding)
-                && expression_contains_uuid_parse(&init.expr, &binding)
-            {
-                self.uuid_parsed_inputs.insert(binding);
+            if let Some(source_binding) = validated_binding_source(&init.expr) {
+                if let Some(sources) = self.from_untrusted_bindings.get(&source_binding).cloned() {
+                    self.protected_bindings.insert(
+                        binding.clone(),
+                        ProtectedBinding {
+                            boundary: ProtectionBoundary::ValidatedDomainInput,
+                            sources,
+                        },
+                    );
+                }
+            }
+
+            if let Some(source) = uuid_parse_external_source(&init.expr, &self.external_inputs) {
+                self.protected_bindings.insert(
+                    binding,
+                    ProtectedBinding {
+                        boundary: ProtectionBoundary::UuidParse,
+                        sources: [source].into_iter().collect(),
+                    },
+                );
             }
         }
 
         visit::visit_local(self, node);
     }
 
-    fn visit_expr_method_call(&mut self, node: &'ast ExprMethodCall) {
-        if node.method == "validate" {
-            if let Some(receiver) = expression_identifier(&node.receiver) {
-                self.validated_bindings.insert(receiver);
-            }
-        }
-
-        visit::visit_expr_method_call(self, node);
+    fn visit_expr_call(&mut self, node: &'ast ExprCall) {
+        self.record_persistence_sink(node);
+        visit::visit_expr_call(self, node);
     }
 }
 
@@ -478,6 +614,64 @@ fn from_untrusted_sources(
     )
 }
 
+fn validated_binding_source(expression: &Expr) -> Option<String> {
+    match peel_expr(expression) {
+        Expr::Match(expression) => {
+            let source = validate_receiver_identifier(&expression.expr)?;
+
+            if match_returns_ok_value(expression) {
+                Some(source)
+            } else {
+                None
+            }
+        }
+
+        Expr::MethodCall(expression)
+            if expression.method == "expect" || expression.method == "unwrap" =>
+        {
+            validate_receiver_identifier(&expression.receiver)
+        }
+
+        Expr::Try(expression) => validate_receiver_identifier(&expression.expr),
+
+        _ => None,
+    }
+}
+
+fn validate_receiver_identifier(expression: &Expr) -> Option<String> {
+    let Expr::MethodCall(method) = peel_expr(expression) else {
+        return None;
+    };
+
+    if method.method != "validate" || !method.args.is_empty() {
+        return None;
+    }
+
+    expression_identifier(&method.receiver)
+}
+
+fn match_returns_ok_value(expression: &syn::ExprMatch) -> bool {
+    expression.arms.iter().any(|arm| {
+        let Pat::TupleStruct(pattern) = &arm.pat else {
+            return false;
+        };
+
+        let Some(last) = pattern.path.segments.last() else {
+            return false;
+        };
+
+        if last.ident != "Ok" || pattern.elems.len() != 1 {
+            return false;
+        }
+
+        let Some(Pat::Ident(value)) = pattern.elems.first() else {
+            return false;
+        };
+
+        expression_identifier(&arm.body).is_some_and(|body| body == value.ident.to_string())
+    })
+}
+
 fn expression_identifier(expression: &Expr) -> Option<String> {
     let Expr::Path(path) = peel_expr(expression) else {
         return None;
@@ -490,30 +684,34 @@ fn expression_identifier(expression: &Expr) -> Option<String> {
     Some(path.path.segments.first()?.ident.to_string())
 }
 
-fn expression_contains_uuid_parse(expression: &Expr, target: &str) -> bool {
+fn uuid_parse_external_source(
+    expression: &Expr,
+    external_inputs: &HashSet<String>,
+) -> Option<String> {
     let mut visitor = UuidParseVisitor {
-        target,
-        found: false,
+        external_inputs,
+        source: None,
     };
 
     visitor.visit_expr(expression);
 
-    visitor.found
+    visitor.source
 }
 
 struct UuidParseVisitor<'a> {
-    target: &'a str,
-    found: bool,
+    external_inputs: &'a HashSet<String>,
+    source: Option<String>,
 }
 
 impl<'ast> Visit<'ast> for UuidParseVisitor<'_> {
     fn visit_expr_call(&mut self, node: &'ast ExprCall) {
-        if uuid_parse_source(node)
-            .as_deref()
-            .is_some_and(|source| source == self.target)
-        {
-            self.found = true;
-            return;
+        if self.source.is_none() {
+            if let Some(source) = uuid_parse_source(node) {
+                if self.external_inputs.contains(&source) {
+                    self.source = Some(source);
+                    return;
+                }
+            }
         }
 
         visit::visit_expr_call(self, node);
@@ -539,6 +737,54 @@ fn uuid_parse_source(call: &ExprCall) -> Option<String> {
     }
 
     expression_identifier(call.args.first()?)
+}
+
+fn persistence_sink_spec(call: &ExprCall) -> Option<(&'static str, Vec<(&'static str, usize)>)> {
+    let Expr::Path(function) = call.func.as_ref() else {
+        return None;
+    };
+
+    let segments: Vec<_> = function.path.segments.iter().collect();
+
+    if segments.len() < 2 {
+        return None;
+    }
+
+    let owner = &segments[segments.len() - 2].ident;
+    let method = &segments[segments.len() - 1].ident;
+
+    if owner != "Contact" {
+        return None;
+    }
+
+    match method.to_string().as_str() {
+        "create" => Some(("Contact::create", vec![("input", 1)])),
+
+        "update" => Some(("Contact::update", vec![("id", 1), ("input", 2)])),
+
+        "delete" => Some(("Contact::delete", vec![("id", 1)])),
+
+        _ => None,
+    }
+}
+
+fn format_sink_argument(argument: &PersistenceSinkArgument) -> String {
+    let binding = argument.binding.as_deref().unwrap_or("<expression>");
+
+    let boundary = argument
+        .boundary
+        .map(ProtectionBoundary::label)
+        .unwrap_or("unrecognized");
+
+    if argument.sources.is_empty() {
+        return format!("{} `{binding}` -> {boundary}", argument.role);
+    }
+
+    format!(
+        "{} `{binding}` <- [{}] -> {boundary}",
+        argument.role,
+        argument.sources.join(", "),
+    )
 }
 
 fn shell_interpreter(call: &ExprCall) -> Option<String> {
