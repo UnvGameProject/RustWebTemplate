@@ -262,6 +262,8 @@ dependencies = [
  "clap",
  "convert_case",
  "jiff",
+ "proc-macro2",
+ "syn 3.0.6",
 ]
 
 [[package]]

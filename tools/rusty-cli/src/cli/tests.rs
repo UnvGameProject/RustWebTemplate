@@ -49,3 +49,10 @@ fn make_test_view_rejects_test_name() {
 
     assert!(result.is_err());
 }
+
+#[test]
+fn audit_command_parses() {
+    let cli = Cli::try_parse_from(["rusty", "audit"]).expect("audit command should parse");
+
+    assert!(matches!(cli.command, Command::Audit));
+}

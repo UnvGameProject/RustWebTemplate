@@ -3,6 +3,8 @@ mod make_command;
 mod migration;
 mod test;
 
+mod audit;
+
 // RUSTY_COMMAND_MODULES
 
 use std::error::Error;
@@ -17,6 +19,7 @@ pub(crate) fn run(command: Command) -> CommandResult {
         Command::MakeTest(args) => test::run(args),
         Command::MakeCommand(args) => make_command::run(args),
         Command::Doctor => doctor::run(),
+        Command::Audit => audit::run(),
         // RUSTY_COMMAND_DISPATCH
     }
 }

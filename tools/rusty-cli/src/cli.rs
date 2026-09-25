@@ -35,6 +35,12 @@ pub(crate) enum Command {
 
     #[command(name = "doctor", about = "Inspect the Rusty CLI project environment")]
     Doctor,
+
+    #[command(
+        name = "audit",
+        about = "Audit application source for security policy violations"
+    )]
+    Audit,
     // RUSTY_COMMAND_VARIANTS
 }
 
